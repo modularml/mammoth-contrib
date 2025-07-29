@@ -39,10 +39,10 @@ def submit_batch_job(input_file_uri, output_file_uri, bearer_token, host="https:
         "store": store,
         "model_id": model,
     }
-    
+
     response = requests.post(f"{host}/v1/inference/batches", headers=headers, json=payload, timeout=30)
     response.raise_for_status()
-    return response.json()
+    return response.json()[0]
 
 
 def main(input_file_uri, output_file_uri, bearer_token, host, model):
