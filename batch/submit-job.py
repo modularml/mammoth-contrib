@@ -1,3 +1,5 @@
+"""Example script generate S3 signed urls for Mammoth BatchJob submission"""
+
 import argparse
 import os
 import datetime
@@ -5,7 +7,7 @@ import datetime
 import boto3
 import requests
 
-def main(bucket, input_key):
+def main(bucket, input_key, host):
     name = input_key.split('/')[-1]
     ts = datetime.datetime.now().isoformat()
 
@@ -38,13 +40,12 @@ def main(bucket, input_key):
           "output_file_id": output_file,
         },
     }
-    print(payload)
-
-#     print(requests.post("http://localhost:8000/v1/batches", json=payload))
+    print(requests.post(f"{host}/v1/batches", json=payload))
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument("--bucket", required=True, type=str, help="S3 bucket with batch job input")
     parser.add_argument("--key", required=True, type=str, help="S3 key for batch job input")
+    parser.add_argument("--host", required=True, type=str, help="Scheme, host (and port) to submit job et http://localhost:8000")
     args = parser.parse_args()
-    main(args.bucket, args.key)
+    main(args.bucket, args.key, args.host)
