@@ -29,7 +29,7 @@ Then open http://localhost:8080
 Python scripts for batch job management via command line.
 
 **Scripts:**
-- `generate-s3-presigned.py`: Generate S3 presigned URLs for batch I/O
+- `generate_s3_presigned.py`: Generate S3 presigned URLs for batch I/O
 - `submit-job.py`: Submit batch jobs via CLI
 - `make-batch.py`: Create batch files and configurations
 

@@ -2,6 +2,8 @@
 
 A lightweight web interface for managing Mammoth Batch API jobs with integrated S3 presigned URL generation.
 
+![Mammoth Batch Manager Preview](static/assets/preview.png)
+
 ## Features
 
 - **Batch Management**: View, create, retry, and cancel batch jobs

@@ -92,7 +92,7 @@ def generate_s3_presigned_urls(
     aws_secret_access_key = credentials.get("aws_secret_access_key") if credentials else None
     aws_session_token = credentials.get("aws_session_token") if credentials else None
     
-    # Use the existing generate-s3-presigned.py script
+    # Use the existing generate_s3_presigned.py script
     result = generate_s3_urls(
         bucket=bucket,
         input_key=input_key,
