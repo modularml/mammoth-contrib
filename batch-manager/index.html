@@ -1,0 +1,1821 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mammoth Batch Manager</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        .status-badge {
+            @apply px-2 py-1 rounded-full text-xs font-semibold;
+        }
+        .status-not_started { @apply bg-gray-200 text-gray-800; }
+        .status-validating { @apply bg-blue-200 text-blue-800; }
+        .status-failed { @apply bg-red-200 text-red-800; }
+        .status-in_progress { @apply bg-yellow-200 text-yellow-800; }
+        .status-finalizing { @apply bg-purple-200 text-purple-800; }
+        .status-completed { @apply bg-green-200 text-green-800; }
+        .status-expired { @apply bg-orange-200 text-orange-800; }
+        .status-cancelling { @apply bg-pink-200 text-pink-800; }
+        .status-cancelled { @apply bg-gray-400 text-gray-900; }
+    </style>
+</head>
+<body class="bg-gray-50">
+    <div class="min-h-screen">
+        <!-- Header -->
+        <header class="bg-white shadow">
+            <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+                <div class="flex justify-between items-center">
+                    <div class="flex items-center">
+                        <img src="/static/assets/logo.png" alt="Mammoth Batch Manager" class="h-48 w-48">
+                    </div>
+                    <div class="flex items-center space-x-6">
+                        <div id="batch-api-status" class="text-sm">
+                            <span class="text-gray-500">Checking Batch API...</span>
+                        </div>
+                        <div id="aws-status" class="text-sm">
+                            <span class="text-yellow-600">● AWS: Not Configured</span>
+                        </div>
+                        <button onclick="showSettingsModal()" class="bg-gray-600 text-white px-4 py-2 rounded hover:bg-gray-700">
+                            Settings
+                        </button>
+                        <button onclick="showCreateBatchModal()" class="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700">
+                            Create New Batch
+                        </button>
+                        <button onclick="showPresetsModal()" class="bg-gray-600 text-white px-4 py-2 rounded hover:bg-gray-700">
+                            Presets
+                        </button>
+                        <button onclick="showActionLog()" class="bg-purple-600 text-white px-4 py-2 rounded hover:bg-purple-700">
+                            Action Log
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </header>
+
+        <!-- Collapsible Instructions -->
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
+            <details class="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                <summary class="cursor-pointer text-blue-800 font-medium hover:text-blue-900">
+                    📋 Setup Instructions & Requirements
+                </summary>
+                <div class="mt-3 text-sm text-blue-700 space-y-2">
+                    <div class="bg-white rounded p-3 border border-blue-200">
+                        <h4 class="font-semibold mb-2">Batch API Requirements:</h4>
+                        <ul class="list-disc list-inside space-y-1">
+                            <li>Expected to run on <code class="bg-blue-100 px-1 rounded">localhost:8000</code> by default</li>
+                            <li>Must implement OpenAI-compatible batch API endpoints</li>
+                            <li>Health endpoint should be available at <code class="bg-blue-100 px-1 rounded">/health</code></li>
+                            <li>Override the API URL in Settings if using a different endpoint</li>
+                        </ul>
+                    </div>
+                    <div class="bg-white rounded p-3 border border-blue-200">
+                        <h4 class="font-semibold mb-2">AWS Configuration:</h4>
+                        <ul class="list-disc list-inside space-y-1">
+                            <li>AWS credentials are optional - uses default credentials if not provided</li>
+                            <li>Configure credentials in Settings for S3 presigned URL generation</li>
+                            <li>Default S3 bucket: <code class="bg-blue-100 px-1 rounded">modular-batch-api-batches</code></li>
+                            <li>For sample inputs, use account: <code class="bg-blue-100 px-1 rounded">sandbox-max-cluster-testing-dev-440d5a7a</code></li>
+                        </ul>
+                    </div>
+                </div>
+            </details>
+        </div>
+
+        <!-- Main Content -->
+        <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+            <!-- Filters and Controls -->
+            <div class="bg-white rounded-lg shadow p-4 mb-6">
+                <div class="flex justify-between items-center">
+                    <div class="flex space-x-4">
+                        <button onclick="loadBatches()" class="bg-gray-200 hover:bg-gray-300 px-4 py-2 rounded">
+                            Refresh
+                        </button>
+                        <select id="status-filter" onchange="filterBatches()" class="border rounded px-3 py-2">
+                            <option value="">All Statuses</option>
+                            <option value="not_started">Not Started</option>
+                            <option value="in_progress">In Progress</option>
+                            <option value="completed">Completed</option>
+                            <option value="failed">Failed</option>
+                            <option value="cancelled">Cancelled</option>
+                        </select>
+                        <select id="sort-field" onchange="sortBatches()" class="border rounded px-3 py-2">
+                            <option value="">Sort by...</option>
+                            <option value="created_at">Start Time</option>
+                            <option value="completed_at">End Time</option>
+                            <option value="request_counts_total">Request Count</option>
+                        </select>
+                        <select id="sort-direction" onchange="sortBatches()" class="border rounded px-3 py-2">
+                            <option value="desc">Newest First</option>
+                            <option value="asc">Oldest First</option>
+                        </select>
+                    </div>
+                    <div class="text-sm text-gray-600">
+                        <span id="batch-count">0</span> batches
+                    </div>
+                </div>
+            </div>
+
+            <!-- Batch List -->
+            <div id="batch-list" class="space-y-4">
+                <!-- Batches will be loaded here -->
+            </div>
+
+            <!-- Pagination -->
+            <div id="pagination" class="mt-6 flex justify-center">
+                <!-- Pagination controls will be here -->
+            </div>
+        </main>
+    </div>
+
+    <!-- Settings Modal -->
+    <div id="settings-modal" class="hidden fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full">
+        <div class="relative top-20 mx-auto p-5 border w-96 shadow-lg rounded-md bg-white">
+            <h3 class="text-lg font-bold mb-4">Settings</h3>
+            
+            <div class="space-y-6">
+                <!-- Batch API URL Override -->
+                <div>
+                    <h4 class="text-md font-semibold mb-2">Batch API Configuration</h4>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700">Batch API URL</label>
+                        <input type="text" id="batch-api-url-override" class="mt-1 block w-full border rounded-md px-3 py-2" 
+                               placeholder="http://localhost:8000" value="http://localhost:8000">
+                        <p class="text-xs text-gray-500 mt-1">Override the default Batch API endpoint</p>
+                    </div>
+                </div>
+
+                <!-- AWS Credentials Section -->
+                <div>
+                    <h4 class="text-md font-semibold mb-2">AWS Configuration</h4>
+                    <div class="space-y-3">
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700">AWS Access Key ID</label>
+                            <input type="text" id="settings-aws-access-key" class="mt-1 block w-full border rounded-md px-3 py-2">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700">AWS Secret Access Key</label>
+                            <input type="password" id="settings-aws-secret-key" class="mt-1 block w-full border rounded-md px-3 py-2">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700">AWS Session Token (optional)</label>
+                            <input type="text" id="settings-aws-session-token" class="mt-1 block w-full border rounded-md px-3 py-2">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700">AWS Region</label>
+                            <input type="text" id="settings-aws-region" class="mt-1 block w-full border rounded-md px-3 py-2" value="us-east-1">
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="mt-6 flex justify-end space-x-3">
+                <button onclick="closeSettingsModal()" class="px-4 py-2 border rounded hover:bg-gray-100">
+                    Cancel
+                </button>
+                <button onclick="clearSettings()" class="bg-red-600 text-white px-4 py-2 rounded hover:bg-red-700">
+                    Clear All
+                </button>
+                <button onclick="saveSettings()" class="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700">
+                    Save Settings
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Create Batch Modal -->
+    <div id="create-batch-modal" class="hidden fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full">
+        <div class="relative top-20 mx-auto p-5 border w-11/12 max-w-4xl shadow-lg rounded-md bg-white">
+            <h3 class="text-lg font-bold mb-4">Create New Batch</h3>
+            
+            <!-- Preset Selector -->
+            <div class="mb-4 flex items-center space-x-3">
+                <label class="text-sm font-medium text-gray-700">Preset:</label>
+                <select id="preset-selector" onchange="loadPreset()" class="border rounded px-3 py-1 text-sm">
+                    <option value="">Select a preset...</option>
+                </select>
+                <button onclick="saveCurrentAsPreset()" class="bg-green-600 text-white px-3 py-1 rounded text-sm hover:bg-green-700">
+                    Save Current
+                </button>
+            </div>
+            
+            <!-- Tabs -->
+            <div class="border-b border-gray-200 mb-4">
+                <nav class="-mb-px flex space-x-8">
+                    <button onclick="switchTab('batch')" id="tab-batch" class="py-2 px-1 border-b-2 border-blue-500 font-medium text-sm text-blue-600">
+                        Batch Details
+                    </button>
+                    <button onclick="switchTab('s3')" id="tab-s3" class="py-2 px-1 border-b-2 border-transparent font-medium text-sm text-gray-500 hover:text-gray-700">
+                        S3 Configuration
+                    </button>
+                </nav>
+            </div>
+
+            <!-- Batch Details Tab -->
+            <div id="tab-content-batch" class="space-y-4">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700">Batch ID</label>
+                    <input type="text" id="batch-id" class="mt-1 block w-full border rounded-md px-3 py-2" placeholder="batch-example-001">
+                </div>
+
+                <div>
+                    <label class="block text-sm font-medium text-gray-700">Model</label>
+                    <input type="text" id="model" class="mt-1 block w-full border rounded-md px-3 py-2" placeholder="OpenGVLab/InternVL3-38B-Instruct">
+                </div>
+
+                <div class="grid grid-cols-2 gap-4">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700">Endpoint</label>
+                        <select id="endpoint" class="mt-1 block w-full border rounded-md px-3 py-2">
+                            <option value="/v1/chat/completions">/v1/chat/completions</option>
+                            <option value="/v1/completions">/v1/completions</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700">Completion Window</label>
+                        <select id="completion-window" class="mt-1 block w-full border rounded-md px-3 py-2">
+                            <option value="6h">6 hours</option>
+                            <option value="12h">12 hours</option>
+                            <option value="24h" selected>24 hours</option>
+                            <option value="7d">7 days</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div>
+                    <label class="block text-sm font-medium text-gray-700">Input File ID (S3 Presigned URL)</label>
+                    <input type="text" id="input-file-id" class="mt-1 block w-full border rounded-md px-3 py-2" placeholder="Generated from S3 tab">
+                    <p class="text-xs text-gray-500 mt-1">This will be auto-filled from the S3 Configuration tab</p>
+                </div>
+
+                <div>
+                    <label class="block text-sm font-medium text-gray-700">Output File ID (S3 Presigned URL)</label>
+                    <input type="text" id="output-file-id" class="mt-1 block w-full border rounded-md px-3 py-2" placeholder="Generated from S3 tab">
+                    <p class="text-xs text-gray-500 mt-1">This will be auto-filled from the S3 Configuration tab</p>
+                </div>
+            </div>
+
+            <!-- S3 Configuration Tab -->
+            <div id="tab-content-s3" class="hidden space-y-4">
+                <div class="bg-yellow-50 border border-yellow-200 rounded p-3 mb-4">
+                    <p class="text-sm text-yellow-800">AWS credentials are optional. If not provided, the system will use default credentials.</p>
+                </div>
+
+                <div>
+                    <label class="block text-sm font-medium text-gray-700">S3 Bucket</label>
+                    <input type="text" id="s3-bucket" class="mt-1 block w-full border rounded-md px-3 py-2" value="modular-batch-api-batches">
+                </div>
+
+                <div>
+                    <label class="block text-sm font-medium text-gray-700">Input S3 Key</label>
+                    <input type="text" id="s3-input-key" class="mt-1 block w-full border rounded-md px-3 py-2" placeholder="inputs/pokemon_batch_898.tar.gz">
+                </div>
+
+                <div>
+                    <label class="block text-sm font-medium text-gray-700">Output S3 Key (optional, auto-generated if empty)</label>
+                    <input type="text" id="s3-output-key" class="mt-1 block w-full border rounded-md px-3 py-2" placeholder="outputs/pokemon_batch_898/2024-01-01T12-00-00.tar.gz">
+                </div>
+
+                <div class="bg-blue-50 border border-blue-200 rounded p-3">
+                    <p class="text-sm text-blue-800">AWS credentials are managed globally. Use the "AWS Config" button in the header to configure your credentials.</p>
+                </div>
+
+                <button onclick="generatePresignedUrls()" class="w-full bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700">
+                    Generate Presigned URLs
+                </button>
+
+                <div id="presigned-urls-result" class="hidden bg-gray-50 border rounded p-3">
+                    <h4 class="font-medium mb-2">Generated URLs:</h4>
+                    <div class="space-y-2 text-sm">
+                        <div>
+                            <span class="font-medium">Input URL:</span>
+                            <code class="block bg-white p-1 rounded text-xs break-all" id="generated-input-url"></code>
+                        </div>
+                        <div>
+                            <span class="font-medium">Output URL:</span>
+                            <code class="block bg-white p-1 rounded text-xs break-all" id="generated-output-url"></code>
+                        </div>
+                    </div>
+                    
+                    <div class="mt-3 flex justify-end">
+                        <button onclick="copyS3UrlsToBatchForm()" class="bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700">
+                            Copy URLs to Batch Form
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Modal Footer -->
+            <div class="mt-6 flex justify-end space-x-3">
+                <button onclick="closeCreateBatchModal()" class="px-4 py-2 border rounded hover:bg-gray-100">
+                    Cancel
+                </button>
+                <button onclick="createBatch()" class="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700">
+                    Create Batch
+                </button>
+                <button onclick="showCreateCurl()" class="bg-purple-600 text-white px-4 py-2 rounded hover:bg-purple-700">
+                    Show Curl
+                </button>
+            </div>
+
+            <!-- Error Display -->
+            <div id="create-error" class="hidden mt-4 bg-red-50 border border-red-200 text-red-700 p-3 rounded"></div>
+        </div>
+    </div>
+
+    <!-- Batch Details Modal -->
+    <div id="batch-details-modal" class="hidden fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full">
+        <div class="relative top-20 mx-auto p-5 border w-11/12 max-w-4xl shadow-lg rounded-md bg-white">
+            <h3 class="text-lg font-bold mb-4">Batch Details</h3>
+            <div id="batch-details-content" class="space-y-3">
+                <!-- Details will be loaded here -->
+            </div>
+            <div class="mt-6 flex justify-between">
+                <button onclick="showRawResponse()" class="px-4 py-2 bg-gray-600 text-white rounded hover:bg-gray-700">
+                    Show Raw Response
+                </button>
+                <button onclick="closeBatchDetailsModal()" class="px-4 py-2 border rounded hover:bg-gray-100">
+                    Close
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- AWS Credentials Modal -->
+    <div id="aws-modal" class="hidden fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full">
+        <div class="relative top-20 mx-auto p-5 border w-96 shadow-lg rounded-md bg-white">
+            <h3 class="text-lg font-bold mb-4">AWS Credentials</h3>
+            
+            <div class="space-y-4">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700">AWS Access Key ID</label>
+                    <input type="text" id="global-aws-access-key" class="mt-1 block w-full border rounded-md px-3 py-2">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700">AWS Secret Access Key</label>
+                    <input type="password" id="global-aws-secret-key" class="mt-1 block w-full border rounded-md px-3 py-2">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700">AWS Session Token (optional)</label>
+                    <input type="text" id="global-aws-session-token" class="mt-1 block w-full border rounded-md px-3 py-2">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700">AWS Region</label>
+                    <input type="text" id="global-aws-region" class="mt-1 block w-full border rounded-md px-3 py-2" value="us-east-1">
+                </div>
+            </div>
+
+            <div class="mt-6 flex justify-end space-x-3">
+                <button onclick="closeAwsModal()" class="px-4 py-2 border rounded hover:bg-gray-100">
+                    Cancel
+                </button>
+                <button onclick="clearAwsCredentials()" class="bg-red-600 text-white px-4 py-2 rounded hover:bg-red-700">
+                    Clear
+                </button>
+                <button onclick="saveAwsCredentials()" class="bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700">
+                    Save & Apply
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Curl Command Modal -->
+    <div id="curl-modal" class="hidden fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full">
+        <div class="relative top-10 mx-auto p-5 border w-11/12 max-w-4xl shadow-lg rounded-md bg-white">
+            <h3 class="text-lg font-bold mb-4">Curl Command</h3>
+            
+            <div class="bg-gray-900 text-green-400 p-4 rounded font-mono text-sm overflow-x-auto">
+                <pre id="curl-content"></pre>
+            </div>
+
+            <div class="mt-4 flex justify-end space-x-3">
+                <button onclick="copyCurlToClipboard()" class="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700">
+                    Copy to Clipboard
+                </button>
+                <button onclick="closeCurlModal()" class="px-4 py-2 border rounded hover:bg-gray-100">
+                    Close
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Presets Management Modal -->
+    <div id="presets-modal" class="hidden fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full">
+        <div class="relative top-10 mx-auto p-5 border w-11/12 max-w-4xl shadow-lg rounded-md bg-white">
+            <h3 class="text-lg font-bold mb-4">Configuration Presets</h3>
+            
+            <!-- Import/Export -->
+            <div class="mb-6 bg-gray-50 p-4 rounded">
+                <h4 class="font-medium mb-3">Import/Export Presets</h4>
+                <div class="flex space-x-3">
+                    <input type="file" id="import-file" accept=".json" class="hidden" onchange="importPresets(event)">
+                    <button onclick="document.getElementById('import-file').click()" class="bg-blue-600 text-white px-3 py-2 rounded hover:bg-blue-700">
+                        Import JSON
+                    </button>
+                    <button onclick="exportPresets()" class="bg-green-600 text-white px-3 py-2 rounded hover:bg-green-700">
+                        Export JSON
+                    </button>
+                </div>
+                <p class="text-xs text-gray-600 mt-2">Export creates a shareable JSON file with all your presets</p>
+            </div>
+
+            <!-- Saved Presets List -->
+            <div class="mb-4">
+                <h4 class="font-medium mb-3">Saved Presets</h4>
+                <div id="presets-list" class="space-y-3 max-h-64 overflow-y-auto">
+                    <!-- Presets will be listed here -->
+                </div>
+            </div>
+
+            <!-- Default Presets -->
+            <div class="mb-4">
+                <h4 class="font-medium mb-3">Default Presets</h4>
+                <div class="grid grid-cols-2 gap-3">
+                    <button onclick="loadDefaultPreset('internvl3')" class="bg-purple-100 hover:bg-purple-200 p-3 rounded text-left">
+                        <div class="font-medium text-purple-800">InternVL3-38B</div>
+                        <div class="text-xs text-purple-600">Chat completions with InternVL3</div>
+                    </button>
+                    <button onclick="loadDefaultPreset('basic')" class="bg-blue-100 hover:bg-blue-200 p-3 rounded text-left">
+                        <div class="font-medium text-blue-800">Basic Setup</div>
+                        <div class="text-xs text-blue-600">Simple batch configuration</div>
+                    </button>
+                </div>
+            </div>
+
+            <div class="mt-6 flex justify-end">
+                <button onclick="closePresetsModal()" class="px-4 py-2 border rounded hover:bg-gray-100">
+                    Close
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Raw Response Modal -->
+    <div id="raw-response-modal" class="hidden fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full">
+        <div class="relative top-10 mx-auto p-5 border w-11/12 max-w-6xl shadow-lg rounded-md bg-white">
+            <h3 class="text-lg font-bold mb-4">Raw API Response</h3>
+            
+            <div class="space-y-4">
+                <!-- Response Headers -->
+                <div>
+                    <h4 class="font-medium mb-2">Response Headers</h4>
+                    <div class="bg-gray-900 text-green-400 p-4 rounded font-mono text-sm max-h-32 overflow-y-auto">
+                        <pre id="raw-headers-content"></pre>
+                    </div>
+                </div>
+                
+                <!-- Response Body -->
+                <div>
+                    <h4 class="font-medium mb-2">Response Body (JSON)</h4>
+                    <div class="bg-gray-900 text-green-400 p-4 rounded font-mono text-sm max-h-96 overflow-y-auto">
+                        <pre id="raw-body-content"></pre>
+                    </div>
+                </div>
+            </div>
+
+            <div class="mt-6 flex justify-end space-x-3">
+                <button onclick="copyRawResponseToClipboard()" class="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700">
+                    Copy JSON
+                </button>
+                <button onclick="closeRawResponseModal()" class="px-4 py-2 border rounded hover:bg-gray-100">
+                    Close
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Action Log Modal -->
+    <div id="action-log-modal" class="hidden fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full">
+        <div class="relative top-5 mx-auto p-5 border w-11/12 max-w-7xl shadow-lg rounded-md bg-white">
+            <h3 class="text-lg font-bold mb-4">Action Log</h3>
+            
+            <div class="mb-4 flex justify-between items-center">
+                <div class="text-sm text-gray-600">
+                    <span id="log-count">0</span> actions logged
+                </div>
+                <div class="flex space-x-2">
+                    <button onclick="downloadActionLog()" class="bg-green-600 text-white px-3 py-2 rounded hover:bg-green-700 text-sm">
+                        Download Log
+                    </button>
+                    <button onclick="clearActionLog()" class="bg-red-600 text-white px-3 py-2 rounded hover:bg-red-700 text-sm">
+                        Clear Log
+                    </button>
+                </div>
+            </div>
+            
+            <div class="bg-gray-50 border rounded p-3 max-h-96 overflow-y-auto">
+                <div id="action-log-content" class="space-y-4">
+                    <!-- Log entries will be here -->
+                </div>
+            </div>
+
+            <div class="mt-6 flex justify-end">
+                <button onclick="closeActionLog()" class="px-4 py-2 border rounded hover:bg-gray-100">
+                    Close
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let allBatches = [];
+        let currentFilter = '';
+        let awsCredentials = null;
+        let savedPresets = {};
+        let currentBatchRawResponse = null;
+        let actionLog = [];
+        const API_BASE = '/api';
+        // Initialize configurable BATCH_API_URL from localStorage or default
+        let BATCH_API_URL = localStorage.getItem('batch-api-url') || 'http://localhost:8000';
+
+        // Human-readable time ago function
+        function timeAgo(timestamp) {
+            const now = Date.now();
+            const diffMs = now - timestamp;
+            const diffSeconds = Math.floor(diffMs / 1000);
+            const diffMinutes = Math.floor(diffSeconds / 60);
+            const diffHours = Math.floor(diffMinutes / 60);
+            const diffDays = Math.floor(diffHours / 24);
+
+            if (diffSeconds < 60) {
+                return 'just now';
+            } else if (diffMinutes < 60) {
+                return `${diffMinutes}m ago`;
+            } else if (diffHours < 24) {
+                return `${diffHours}h ago`;
+            } else if (diffDays < 7) {
+                return `${diffDays}d ago`;
+            } else {
+                const diffWeeks = Math.floor(diffDays / 7);
+                if (diffWeeks < 4) {
+                    return `${diffWeeks}w ago`;
+                } else {
+                    const diffMonths = Math.floor(diffDays / 30);
+                    return `${diffMonths}mo ago`;
+                }
+            }
+        }
+
+        // Initialize
+        document.addEventListener('DOMContentLoaded', () => {
+            loadSavedCredentials();
+            loadSavedPresets();
+            loadActionLog();
+            checkHealth();
+            loadBatches();
+            setInterval(checkHealth, 30000); // Check health every 30 seconds
+            setInterval(loadBatches, 10000); // Refresh batches every 10 seconds
+        });
+
+        async function checkHealth() {
+            try {
+                const response = await fetch(`${API_BASE}/health`);
+                const data = await response.json();
+                
+                const healthEl = document.getElementById('batch-api-status');
+                const batchApiStatus = data.batch_api_status === 'healthy' 
+                    ? '<span class="text-green-600">● Batch API: Healthy</span>'
+                    : `<span class="text-red-600">● Batch API: ${data.batch_api_status}</span>`;
+                
+                healthEl.innerHTML = batchApiStatus;
+            } catch (error) {
+                document.getElementById('batch-api-status').innerHTML = 
+                    '<span class="text-red-600">● Service Error</span>';
+            }
+        }
+
+        async function loadBatches() {
+            try {
+                const response = await fetch(`${API_BASE}/batches`);
+                const data = await response.json();
+                
+                allBatches = data.data || [];
+                document.getElementById('batch-count').textContent = allBatches.length;
+                
+                displayBatches();
+            } catch (error) {
+                console.error('Failed to load batches:', error);
+                document.getElementById('batch-list').innerHTML = 
+                    '<div class="bg-red-50 border border-red-200 rounded p-4 text-red-700">Failed to load batches. Please check the connection.</div>';
+            }
+        }
+
+        function filterBatches() {
+            currentFilter = document.getElementById('status-filter').value;
+            displayBatches();
+        }
+
+        function sortBatches() {
+            displayBatches();
+        }
+
+        function displayBatches() {
+            let filteredBatches = currentFilter 
+                ? allBatches.filter(b => b.status === currentFilter)
+                : allBatches;
+
+            // Apply sorting
+            const sortField = document.getElementById('sort-field').value;
+            const sortDirection = document.getElementById('sort-direction').value;
+            
+            if (sortField) {
+                filteredBatches.sort((a, b) => {
+                    let aVal = a[sortField];
+                    let bVal = b[sortField];
+                    
+                    // Handle null/undefined values
+                    if (!aVal && !bVal) return 0;
+                    if (!aVal) return 1;
+                    if (!bVal) return -1;
+                    
+                    // Handle different data types
+                    if (sortField === 'request_counts_total') {
+                        aVal = (a.request_counts?.total || 0);
+                        bVal = (b.request_counts?.total || 0);
+                    }
+                    
+                    // Compare values
+                    if (aVal < bVal) return sortDirection === 'asc' ? -1 : 1;
+                    if (aVal > bVal) return sortDirection === 'asc' ? 1 : -1;
+                    return 0;
+                });
+            }
+            
+            const batchList = document.getElementById('batch-list');
+            
+            if (filteredBatches.length === 0) {
+                batchList.innerHTML = '<div class="bg-gray-100 rounded p-8 text-center text-gray-500">No batches found</div>';
+                return;
+            }
+            
+            batchList.innerHTML = filteredBatches.map(batch => `
+                <div class="bg-white rounded-lg shadow p-4 hover:shadow-lg transition-shadow">
+                    <div class="flex justify-between items-start">
+                        <div class="flex-1">
+                            <div class="flex items-center space-x-3">
+                                <h3 class="font-semibold text-lg">${batch.id}</h3>
+                                <span class="status-badge status-${batch.status}">${batch.status}</span>
+                            </div>
+                            <div class="mt-2 grid grid-cols-2 gap-2 text-sm text-gray-600">
+                                <div>Model: ${batch.metadata?.model || 'N/A'}</div>
+                                <div>Endpoint: ${batch.endpoint}</div>
+                                <div>Created: ${new Date(batch.created_at * 1000).toLocaleString()} <span class="text-gray-400">(${timeAgo(batch.created_at * 1000)})</span></div>
+                                <div>Window: ${batch.completion_window}</div>
+                            </div>
+                            ${batch.request_counts ? `
+                                <div class="mt-2 flex space-x-4 text-sm">
+                                    <span class="text-gray-600">Total: ${batch.request_counts.total}</span>
+                                    <span class="text-green-600">Completed: ${batch.request_counts.completed}</span>
+                                    <span class="text-red-600">Failed: ${batch.request_counts.failed}</span>
+                                </div>
+                            ` : ''}
+                        </div>
+                        <div class="flex space-x-2">
+                            <button onclick="showBatchDetails('${batch.id}')" class="text-blue-600 hover:text-blue-800">
+                                View
+                            </button>
+                            ${canRetry(batch) ? `
+                                <button onclick="retryBatch('${batch.id}')" class="text-green-600 hover:text-green-800">
+                                    Retry
+                                </button>
+                            ` : ''}
+                            ${canCancel(batch) ? `
+                                <button onclick="cancelBatch('${batch.id}')" class="text-red-600 hover:text-red-800">
+                                    Cancel
+                                </button>
+                            ` : ''}
+                            <button onclick="showCurlForBatch('${batch.id}')" class="text-purple-600 hover:text-purple-800">
+                                Curl
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        function canRetry(batch) {
+            const terminalStates = ['completed', 'failed', 'expired', 'cancelled'];
+            return terminalStates.includes(batch.status);
+        }
+
+        function canCancel(batch) {
+            const cancellableStates = ['not_started', 'validating', 'in_progress', 'finalizing'];
+            return cancellableStates.includes(batch.status);
+        }
+
+        async function showBatchDetails(batchId) {
+            try {
+                const response = await fetch(`${API_BASE}/batches/${batchId}`);
+                const batch = await response.json();
+                
+                // Store raw response data for the raw view
+                currentBatchRawResponse = {
+                    status: response.status,
+                    statusText: response.statusText,
+                    headers: Object.fromEntries(response.headers.entries()),
+                    body: batch,
+                    url: response.url
+                };
+                
+                const modal = document.getElementById('batch-details-modal');
+                const content = document.getElementById('batch-details-content');
+                
+                content.innerHTML = `
+                    <div class="space-y-3">
+                        <div class="grid grid-cols-2 gap-3">
+                            <div>
+                                <span class="font-medium">Batch ID:</span> ${batch.id}
+                            </div>
+                            <div>
+                                <span class="font-medium">Status:</span> 
+                                <span class="status-badge status-${batch.status}">${batch.status}</span>
+                            </div>
+                            <div>
+                                <span class="font-medium">Model:</span> ${batch.metadata?.model || 'N/A'}
+                            </div>
+                            <div>
+                                <span class="font-medium">Endpoint:</span> ${batch.endpoint}
+                            </div>
+                            <div>
+                                <span class="font-medium">Created:</span> ${new Date(batch.created_at * 1000).toLocaleString()} <span class="text-gray-400">(${timeAgo(batch.created_at * 1000)})</span>
+                            </div>
+                            <div>
+                                <span class="font-medium">Expires:</span> ${batch.expires_at ? new Date(batch.expires_at * 1000).toLocaleString() : 'N/A'}
+                            </div>
+                        </div>
+                        
+                        ${batch.request_counts ? `
+                            <div class="border-t pt-3">
+                                <h4 class="font-medium mb-2">Request Counts</h4>
+                                <div class="grid grid-cols-3 gap-3 text-sm">
+                                    <div class="bg-gray-50 p-2 rounded">
+                                        <div class="text-gray-600">Total</div>
+                                        <div class="text-xl font-semibold">${batch.request_counts.total}</div>
+                                    </div>
+                                    <div class="bg-green-50 p-2 rounded">
+                                        <div class="text-green-600">Completed</div>
+                                        <div class="text-xl font-semibold text-green-700">${batch.request_counts.completed}</div>
+                                    </div>
+                                    <div class="bg-red-50 p-2 rounded">
+                                        <div class="text-red-600">Failed</div>
+                                        <div class="text-xl font-semibold text-red-700">${batch.request_counts.failed}</div>
+                                    </div>
+                                </div>
+                            </div>
+                        ` : ''}
+                        
+                        <div class="border-t pt-3">
+                            <h4 class="font-medium mb-2">File IDs</h4>
+                            <div class="space-y-2 text-sm">
+                                <div>
+                                    <span class="font-medium">Input:</span>
+                                    <code class="block bg-gray-50 p-1 rounded text-xs break-all">${batch.input_file_id}</code>
+                                </div>
+                                ${batch.output_file_id ? `
+                                    <div>
+                                        <span class="font-medium">Output:</span>
+                                        <code class="block bg-gray-50 p-1 rounded text-xs break-all">${batch.output_file_id}</code>
+                                    </div>
+                                ` : ''}
+                            </div>
+                        </div>
+                        
+                        ${batch.metadata && Object.keys(batch.metadata).length > 0 ? `
+                            <div class="border-t pt-3">
+                                <h4 class="font-medium mb-2">Metadata</h4>
+                                <div class="bg-gray-50 p-2 rounded">
+                                    <pre class="text-xs">${JSON.stringify(batch.metadata, null, 2)}</pre>
+                                </div>
+                            </div>
+                        ` : ''}
+                    </div>
+                `;
+                
+                modal.classList.remove('hidden');
+            } catch (error) {
+                alert('Failed to load batch details: ' + error.message);
+            }
+        }
+
+        function closeBatchDetailsModal() {
+            document.getElementById('batch-details-modal').classList.add('hidden');
+        }
+
+        async function retryBatch(batchId) {
+            if (!confirm(`Retry batch ${batchId}?`)) return;
+            
+            try {
+                const url = `${API_BASE}/batches/${batchId}/retry`;
+                const response = await fetch(url, {
+                    method: 'POST'
+                });
+                
+                if (!response.ok) {
+                    const error = await response.text();
+                    throw new Error(error);
+                }
+                
+                // Read response body first
+                const responseText = await response.text();
+                let responseBody;
+                try {
+                    responseBody = JSON.parse(responseText);
+                } catch (e) {
+                    responseBody = responseText;
+                }
+                
+                // Create a response-like object for logging since original response is consumed
+                const responseForLogging = {
+                    status: response.status,
+                    statusText: response.statusText,
+                    headers: response.headers,
+                    url: response.url
+                };
+                
+                logAction('Retry Batch', 'POST', `${BATCH_API_URL}/v1/batches/${batchId}/retry`, null, responseForLogging, responseBody);
+                loadBatches();
+            } catch (error) {
+                alert('Failed to retry batch: ' + error.message);
+            }
+        }
+
+        async function cancelBatch(batchId) {
+            if (!confirm(`Cancel batch ${batchId}?`)) return;
+            
+            try {
+                const url = `${API_BASE}/batches/${batchId}/cancel`;
+                const response = await fetch(url, {
+                    method: 'POST'
+                });
+                
+                if (!response.ok) {
+                    const error = await response.text();
+                    throw new Error(error);
+                }
+                
+                // Read response body first
+                const responseText = await response.text();
+                let responseBody;
+                try {
+                    responseBody = JSON.parse(responseText);
+                } catch (e) {
+                    responseBody = responseText;
+                }
+                
+                // Create a response-like object for logging since original response is consumed
+                const responseForLogging = {
+                    status: response.status,
+                    statusText: response.statusText,
+                    headers: response.headers,
+                    url: response.url
+                };
+                
+                logAction('Cancel Batch', 'POST', `${BATCH_API_URL}/v1/batches/${batchId}/cancel`, null, responseForLogging, responseBody);
+                loadBatches();
+            } catch (error) {
+                alert('Failed to cancel batch: ' + error.message);
+            }
+        }
+
+        function showCreateBatchModal() {
+            document.getElementById('create-batch-modal').classList.remove('hidden');
+            document.getElementById('create-error').classList.add('hidden');
+        }
+
+        function closeCreateBatchModal() {
+            document.getElementById('create-batch-modal').classList.add('hidden');
+        }
+
+        function switchTab(tab) {
+            // Update tab buttons
+            document.querySelectorAll('[id^="tab-"]').forEach(el => {
+                if (el.id === `tab-${tab}`) {
+                    el.classList.add('border-blue-500', 'text-blue-600');
+                    el.classList.remove('border-transparent', 'text-gray-500');
+                } else if (el.id.startsWith('tab-') && !el.id.includes('content')) {
+                    el.classList.remove('border-blue-500', 'text-blue-600');
+                    el.classList.add('border-transparent', 'text-gray-500');
+                }
+            });
+            
+            // Update tab content
+            document.querySelectorAll('[id^="tab-content-"]').forEach(el => {
+                if (el.id === `tab-content-${tab}`) {
+                    el.classList.remove('hidden');
+                } else {
+                    el.classList.add('hidden');
+                }
+            });
+        }
+
+        async function createBatch() {
+            const batchId = document.getElementById('batch-id').value;
+            const model = document.getElementById('model').value;
+            const inputFileId = document.getElementById('input-file-id').value;
+            const outputFileId = document.getElementById('output-file-id').value;
+            const endpoint = document.getElementById('endpoint').value;
+            const completionWindow = document.getElementById('completion-window').value;
+            
+            // Validation
+            if (!batchId || !model || !inputFileId || !outputFileId) {
+                document.getElementById('create-error').textContent = 'Please fill in all required fields';
+                document.getElementById('create-error').classList.remove('hidden');
+                return;
+            }
+            
+            const requestBody = {
+                batch_id: batchId,
+                input_file_id: inputFileId,
+                output_file_id: outputFileId,
+                endpoint: endpoint,
+                completion_window: completionWindow,
+                metadata: {
+                    model: model,
+                    output_file_id: outputFileId
+                }
+            };
+            
+            try {
+                const url = `${API_BASE}/batches`;
+                const response = await fetch(url, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(requestBody)
+                });
+                
+                if (!response.ok) {
+                    const error = await response.text();
+                    throw new Error(error);
+                }
+                
+                const batch = await response.json();
+                closeCreateBatchModal();
+                logAction('Create Batch', 'POST', `${BATCH_API_URL}/v1/batches`, requestBody, response, batch);
+                loadBatches();
+            } catch (error) {
+                document.getElementById('create-error').textContent = 'Failed to create batch: ' + error.message;
+                document.getElementById('create-error').classList.remove('hidden');
+            }
+        }
+
+        // AWS Credentials Management
+        function loadSavedCredentials() {
+            const saved = localStorage.getItem('aws-credentials');
+            if (saved) {
+                awsCredentials = JSON.parse(saved);
+                updateAwsStatus();
+            }
+        }
+
+        function updateAwsStatus() {
+            const statusEl = document.getElementById('aws-status');
+            if (awsCredentials && awsCredentials.aws_access_key_id) {
+                statusEl.innerHTML = '<span class="text-green-600">● AWS: Configured</span>';
+            } else {
+                statusEl.innerHTML = '<span class="text-yellow-600">● AWS: Not Configured</span>';
+            }
+        }
+
+        function showAwsModal() {
+            const modal = document.getElementById('aws-modal');
+            if (awsCredentials) {
+                document.getElementById('global-aws-access-key').value = awsCredentials.aws_access_key_id || '';
+                document.getElementById('global-aws-secret-key').value = awsCredentials.aws_secret_access_key || '';
+                document.getElementById('global-aws-session-token').value = awsCredentials.aws_session_token || '';
+                document.getElementById('global-aws-region').value = awsCredentials.region || 'us-east-1';
+            }
+            modal.classList.remove('hidden');
+        }
+
+        function closeAwsModal() {
+            document.getElementById('aws-modal').classList.add('hidden');
+        }
+
+        function saveAwsCredentials() {
+            const accessKey = document.getElementById('global-aws-access-key').value;
+            const secretKey = document.getElementById('global-aws-secret-key').value;
+            const sessionToken = document.getElementById('global-aws-session-token').value;
+            const region = document.getElementById('global-aws-region').value || 'us-east-1';
+
+            if (!accessKey || !secretKey) {
+                alert('AWS Access Key ID and Secret Access Key are required');
+                return;
+            }
+
+            awsCredentials = {
+                aws_access_key_id: accessKey,
+                aws_secret_access_key: secretKey,
+                aws_session_token: sessionToken,
+                region: region
+            };
+
+            localStorage.setItem('aws-credentials', JSON.stringify(awsCredentials));
+            updateAwsStatus();
+            closeAwsModal();
+            alert('AWS credentials saved successfully!');
+        }
+
+        function clearAwsCredentials() {
+            awsCredentials = null;
+            localStorage.removeItem('aws-credentials');
+            updateAwsStatus();
+            closeAwsModal();
+            document.getElementById('global-aws-access-key').value = '';
+            document.getElementById('global-aws-secret-key').value = '';
+            document.getElementById('global-aws-session-token').value = '';
+            document.getElementById('global-aws-region').value = 'us-east-1';
+            alert('AWS credentials cleared!');
+        }
+
+        // Settings Modal Functions
+        function showSettingsModal() {
+            // Load current settings into the modal
+            loadSettingsIntoModal();
+            document.getElementById('settings-modal').classList.remove('hidden');
+        }
+
+        function closeSettingsModal() {
+            document.getElementById('settings-modal').classList.add('hidden');
+        }
+
+        function loadSettingsIntoModal() {
+            // Load Batch API URL
+            const savedBatchApiUrl = localStorage.getItem('batch-api-url') || 'http://localhost:8000';
+            document.getElementById('batch-api-url-override').value = savedBatchApiUrl;
+
+            // Load AWS credentials
+            if (awsCredentials) {
+                document.getElementById('settings-aws-access-key').value = awsCredentials.aws_access_key_id || '';
+                document.getElementById('settings-aws-secret-key').value = awsCredentials.aws_secret_access_key || '';
+                document.getElementById('settings-aws-session-token').value = awsCredentials.aws_session_token || '';
+                document.getElementById('settings-aws-region').value = awsCredentials.region || 'us-east-1';
+            }
+        }
+
+        function saveSettings() {
+            // Save Batch API URL
+            const batchApiUrl = document.getElementById('batch-api-url-override').value.trim();
+            if (batchApiUrl) {
+                localStorage.setItem('batch-api-url', batchApiUrl);
+                // Update global BATCH_API_URL variable
+                updateBatchApiUrl(batchApiUrl);
+            }
+
+            // Save AWS credentials
+            const accessKey = document.getElementById('settings-aws-access-key').value;
+            const secretKey = document.getElementById('settings-aws-secret-key').value;
+            const sessionToken = document.getElementById('settings-aws-session-token').value;
+            const region = document.getElementById('settings-aws-region').value || 'us-east-1';
+
+            if (accessKey && secretKey) {
+                awsCredentials = {
+                    aws_access_key_id: accessKey,
+                    aws_secret_access_key: secretKey,
+                    aws_session_token: sessionToken,
+                    region: region
+                };
+                localStorage.setItem('aws-credentials', JSON.stringify(awsCredentials));
+                updateAwsStatus();
+            } else if (accessKey || secretKey) {
+                alert('Both AWS Access Key ID and Secret Access Key are required');
+                return;
+            }
+
+            closeSettingsModal();
+            alert('Settings saved successfully!');
+            
+            // Refresh health status with new API URL
+            checkHealth();
+        }
+
+        function clearSettings() {
+            if (confirm('Clear all settings? This will reset the Batch API URL and AWS credentials.')) {
+                // Clear Batch API URL
+                localStorage.removeItem('batch-api-url');
+                updateBatchApiUrl('http://localhost:8000');
+                
+                // Clear AWS credentials
+                awsCredentials = null;
+                localStorage.removeItem('aws-credentials');
+                updateAwsStatus();
+                
+                closeSettingsModal();
+                alert('All settings cleared!');
+                checkHealth();
+            }
+        }
+
+        function updateBatchApiUrl(newUrl) {
+            // Update the global BATCH_API_URL variable
+            BATCH_API_URL = newUrl;
+            // Update the instructions
+            const codeElements = document.querySelectorAll('code');
+            codeElements[0].textContent = newUrl; // Update first code element (batch API URL)
+        }
+
+        // S3 URL Copy Function
+        function copyS3UrlsToBatchForm() {
+            const inputUrl = document.getElementById('generated-input-url').textContent;
+            const outputUrl = document.getElementById('generated-output-url').textContent;
+            
+            if (!inputUrl || !outputUrl) {
+                alert('Please generate presigned URLs first');
+                return;
+            }
+            
+            // Switch to Batch Details tab
+            switchTab('batch');
+            
+            // Copy URLs to the batch form
+            document.getElementById('input-file-id').value = inputUrl;
+            document.getElementById('output-file-id').value = outputUrl;
+            
+            alert('S3 URLs copied to batch form successfully!');
+        }
+
+        // Curl Generation Functions
+        function generateBatchCurl(batchData) {
+            const curlData = {
+                batch_id: batchData.batch_id,
+                input_file_id: batchData.input_file_id,
+                output_file_id: batchData.output_file_id,
+                endpoint: batchData.endpoint,
+                completion_window: batchData.completion_window,
+                metadata: batchData.metadata || {}
+            };
+
+            return `curl -X POST ${BATCH_API_URL}/v1/batches \\
+  -H "Content-Type: application/json" \\
+  -d '${JSON.stringify(curlData, null, 2)}'`;
+        }
+
+        function showCreateCurl() {
+            const batchId = document.getElementById('batch-id').value;
+            const model = document.getElementById('model').value;
+            const inputFileId = document.getElementById('input-file-id').value;
+            const outputFileId = document.getElementById('output-file-id').value;
+            const endpoint = document.getElementById('endpoint').value;
+            const completionWindow = document.getElementById('completion-window').value;
+
+            const batchData = {
+                batch_id: batchId || "your-batch-id",
+                input_file_id: inputFileId || "your-input-file-url",
+                output_file_id: outputFileId || "your-output-file-url",
+                endpoint: endpoint,
+                completion_window: completionWindow,
+                metadata: {
+                    model: model || "your-model-name",
+                    output_file_id: outputFileId || "your-output-file-url"
+                }
+            };
+
+            const curl = generateBatchCurl(batchData);
+            showCurlModal(curl);
+        }
+
+        async function showCurlForBatch(batchId) {
+            try {
+                const response = await fetch(`${API_BASE}/batches/${batchId}`);
+                const batch = await response.json();
+                
+                let curl = '';
+                
+                // Create batch curl
+                const createCurl = generateBatchCurl({
+                    batch_id: batch.id,
+                    input_file_id: batch.input_file_id,
+                    output_file_id: batch.output_file_id || "",
+                    endpoint: batch.endpoint,
+                    completion_window: batch.completion_window,
+                    metadata: batch.metadata
+                });
+                
+                curl += `# Create batch\n${createCurl}\n\n`;
+                
+                // Get batch curl
+                curl += `# Get batch details\ncurl -X GET ${BATCH_API_URL}/v1/batches/${batch.id}\n\n`;
+                
+                // Retry curl (if applicable)
+                if (canRetry(batch)) {
+                    curl += `# Retry batch\ncurl -X POST ${BATCH_API_URL}/v1/batches/${batch.id}/retry\n\n`;
+                }
+                
+                // Cancel curl (if applicable)
+                if (canCancel(batch)) {
+                    curl += `# Cancel batch\ncurl -X POST ${BATCH_API_URL}/v1/batches/${batch.id}/cancel\n\n`;
+                }
+                
+                showCurlModal(curl);
+            } catch (error) {
+                alert('Failed to generate curl commands: ' + error.message);
+            }
+        }
+
+        function showCurlModal(curlCommand) {
+            document.getElementById('curl-content').textContent = curlCommand;
+            document.getElementById('curl-modal').classList.remove('hidden');
+        }
+
+        function closeCurlModal() {
+            document.getElementById('curl-modal').classList.add('hidden');
+        }
+
+        function copyCurlToClipboard() {
+            const curlContent = document.getElementById('curl-content').textContent;
+            navigator.clipboard.writeText(curlContent).then(() => {
+                alert('Curl command copied to clipboard!');
+            }).catch(err => {
+                console.error('Failed to copy: ', err);
+                // Fallback for older browsers
+                const textArea = document.createElement('textarea');
+                textArea.value = curlContent;
+                document.body.appendChild(textArea);
+                textArea.select();
+                document.execCommand('copy');
+                document.body.removeChild(textArea);
+                alert('Curl command copied to clipboard!');
+            });
+        }
+
+        // Update generate presigned URLs to use stored credentials
+        async function generatePresignedUrls() {
+            const bucket = document.getElementById('s3-bucket').value;
+            const inputKey = document.getElementById('s3-input-key').value;
+            const outputKey = document.getElementById('s3-output-key').value;
+            
+            if (!inputKey) {
+                alert('Please provide an input S3 key');
+                return;
+            }
+            
+            if (!awsCredentials || !awsCredentials.aws_access_key_id) {
+                alert('Please configure AWS credentials first using the AWS Config button');
+                return;
+            }
+            
+            try {
+                const response = await fetch(`${API_BASE}/generate-presigned-urls`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        bucket: bucket,
+                        input_key: inputKey,
+                        output_key: outputKey || null,
+                        expires_in: 604800,
+                        credentials: awsCredentials
+                    })
+                });
+                
+                if (!response.ok) {
+                    const error = await response.text();
+                    throw new Error(error);
+                }
+                
+                const data = await response.json();
+                
+                // Show the results
+                document.getElementById('presigned-urls-result').classList.remove('hidden');
+                document.getElementById('generated-input-url').textContent = data.input_url;
+                document.getElementById('generated-output-url').textContent = data.output_url;
+                
+                // Auto-fill the batch form
+                document.getElementById('input-file-id').value = data.input_url;
+                document.getElementById('output-file-id').value = data.output_url;
+                
+                alert('Presigned URLs generated successfully! They have been copied to the Batch Details tab.');
+            } catch (error) {
+                alert('Failed to generate presigned URLs: ' + error.message);
+            }
+        }
+
+        // Preset Management Functions
+        const defaultPresets = {
+            internvl3: {
+                name: "InternVL3-38B Default",
+                description: "Standard setup for OpenGVLab/InternVL3-38B-Instruct",
+                batchConfig: {
+                    endpoint: "/v1/chat/completions",
+                    completion_window: "24h",
+                    model: "OpenGVLab/InternVL3-38B-Instruct"
+                },
+                s3Config: {
+                    bucket: "modular-batch-api-batches",
+                    input_key: "inputs/pokemon_batch_898.tar.gz",
+                    output_key: "",
+                    expires_in: 604800
+                }
+            },
+            basic: {
+                name: "Basic Setup",
+                description: "Simple batch configuration template",
+                batchConfig: {
+                    endpoint: "/v1/chat/completions",
+                    completion_window: "24h",
+                    model: "your-model-name"
+                },
+                s3Config: {
+                    bucket: "modular-batch-api-batches",
+                    input_key: "inputs/your-input-file.tar.gz",
+                    output_key: "",
+                    expires_in: 604800
+                }
+            }
+        };
+
+        function loadSavedPresets() {
+            const saved = localStorage.getItem('batch-presets');
+            if (saved) {
+                try {
+                    savedPresets = JSON.parse(saved);
+                } catch (e) {
+                    console.error('Failed to load presets:', e);
+                    savedPresets = {};
+                }
+            }
+            updatePresetSelectors();
+        }
+
+        function updatePresetSelectors() {
+            const selector = document.getElementById('preset-selector');
+            selector.innerHTML = '<option value="">Select a preset...</option>';
+            
+            // Add default presets
+            Object.keys(defaultPresets).forEach(key => {
+                const preset = defaultPresets[key];
+                const option = document.createElement('option');
+                option.value = `default:${key}`;
+                option.textContent = `${preset.name} (Default)`;
+                selector.appendChild(option);
+            });
+            
+            // Add saved presets
+            Object.keys(savedPresets).forEach(key => {
+                const preset = savedPresets[key];
+                const option = document.createElement('option');
+                option.value = `saved:${key}`;
+                option.textContent = preset.name;
+                selector.appendChild(option);
+            });
+
+            updatePresetsList();
+        }
+
+        function updatePresetsList() {
+            const listEl = document.getElementById('presets-list');
+            if (Object.keys(savedPresets).length === 0) {
+                listEl.innerHTML = '<p class="text-gray-500 text-center py-4">No saved presets yet</p>';
+                return;
+            }
+
+            listEl.innerHTML = Object.keys(savedPresets).map(key => {
+                const preset = savedPresets[key];
+                return `
+                    <div class="bg-gray-50 p-3 rounded flex justify-between items-center">
+                        <div>
+                            <div class="font-medium">${preset.name}</div>
+                            <div class="text-sm text-gray-600">${preset.description || 'No description'}</div>
+                            <div class="text-xs text-gray-500">Model: ${preset.batchConfig.model}, Endpoint: ${preset.batchConfig.endpoint}</div>
+                        </div>
+                        <div class="flex space-x-2">
+                            <button onclick="loadSavedPreset('${key}')" class="bg-blue-500 text-white px-2 py-1 rounded text-xs hover:bg-blue-600">
+                                Load
+                            </button>
+                            <button onclick="deletePreset('${key}')" class="bg-red-500 text-white px-2 py-1 rounded text-xs hover:bg-red-600">
+                                Delete
+                            </button>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        function showPresetsModal() {
+            updatePresetsList();
+            document.getElementById('presets-modal').classList.remove('hidden');
+        }
+
+        function closePresetsModal() {
+            document.getElementById('presets-modal').classList.add('hidden');
+        }
+
+        function loadPreset() {
+            const selector = document.getElementById('preset-selector');
+            const value = selector.value;
+            if (!value) return;
+
+            const [type, key] = value.split(':');
+            if (type === 'default') {
+                loadDefaultPreset(key);
+            } else if (type === 'saved') {
+                loadSavedPreset(key);
+            }
+        }
+
+        function loadDefaultPreset(key) {
+            const preset = defaultPresets[key];
+            if (!preset) return;
+
+            applyPresetToForm(preset);
+            closePresetsModal();
+        }
+
+        function loadSavedPreset(key) {
+            const preset = savedPresets[key];
+            if (!preset) return;
+
+            applyPresetToForm(preset);
+            closePresetsModal();
+        }
+
+        function applyPresetToForm(preset) {
+            // Apply batch config
+            document.getElementById('model').value = preset.batchConfig.model || '';
+            document.getElementById('endpoint').value = preset.batchConfig.endpoint || '/v1/chat/completions';
+            document.getElementById('completion-window').value = preset.batchConfig.completion_window || '24h';
+
+            // Apply S3 config
+            document.getElementById('s3-bucket').value = preset.s3Config.bucket || 'modular-batch-api-batches';
+            document.getElementById('s3-input-key').value = preset.s3Config.input_key || '';
+            document.getElementById('s3-output-key').value = preset.s3Config.output_key || '';
+
+            // Update preset selector
+            const selector = document.getElementById('preset-selector');
+            const matchingOption = Array.from(selector.options).find(opt => 
+                opt.textContent.includes(preset.name)
+            );
+            if (matchingOption) {
+                selector.value = matchingOption.value;
+            }
+
+            alert(`Loaded preset: ${preset.name}`);
+        }
+
+        function getCurrentFormData() {
+            return {
+                batchConfig: {
+                    batch_id: document.getElementById('batch-id').value,
+                    model: document.getElementById('model').value,
+                    endpoint: document.getElementById('endpoint').value,
+                    completion_window: document.getElementById('completion-window').value
+                },
+                s3Config: {
+                    bucket: document.getElementById('s3-bucket').value,
+                    input_key: document.getElementById('s3-input-key').value,
+                    output_key: document.getElementById('s3-output-key').value,
+                    expires_in: 604800
+                }
+            };
+        }
+
+        function saveCurrentAsPreset() {
+            const name = prompt('Enter a name for this preset:');
+            if (!name) return;
+
+            const description = prompt('Enter a description (optional):') || '';
+            const formData = getCurrentFormData();
+
+            const presetKey = name.toLowerCase().replace(/[^a-z0-9]/g, '_');
+            
+            savedPresets[presetKey] = {
+                name: name,
+                description: description,
+                ...formData
+            };
+
+            localStorage.setItem('batch-presets', JSON.stringify(savedPresets));
+            updatePresetSelectors();
+            alert(`Preset "${name}" saved successfully!`);
+        }
+
+        function deletePreset(key) {
+            const preset = savedPresets[key];
+            if (!confirm(`Delete preset "${preset.name}"?`)) return;
+
+            delete savedPresets[key];
+            localStorage.setItem('batch-presets', JSON.stringify(savedPresets));
+            updatePresetSelectors();
+        }
+
+        function exportPresets() {
+            const exportData = {
+                version: "1.0",
+                timestamp: new Date().toISOString(),
+                presets: savedPresets,
+                defaultPresets: defaultPresets
+            };
+
+            const blob = new Blob([JSON.stringify(exportData, null, 2)], {
+                type: 'application/json'
+            });
+
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `mammoth-batch-presets-${new Date().toISOString().split('T')[0]}.json`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+        }
+
+        function importPresets(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                try {
+                    const importData = JSON.parse(e.target.result);
+                    
+                    if (importData.presets) {
+                        // Merge with existing presets
+                        const mergeCount = Object.keys(importData.presets).length;
+                        Object.assign(savedPresets, importData.presets);
+                        
+                        localStorage.setItem('batch-presets', JSON.stringify(savedPresets));
+                        updatePresetSelectors();
+                        
+                        alert(`Successfully imported ${mergeCount} presets!`);
+                    } else {
+                        alert('Invalid preset file format');
+                    }
+                } catch (error) {
+                    alert('Failed to import presets: ' + error.message);
+                }
+            };
+            reader.readAsText(file);
+            
+            // Reset file input
+            event.target.value = '';
+        }
+
+        function showCreateBatchModal() {
+            document.getElementById('create-batch-modal').classList.remove('hidden');
+            document.getElementById('create-error').classList.add('hidden');
+            updatePresetSelectors(); // Refresh preset selector when opening modal
+        }
+
+        // Action logging
+        function logAction(action, method, url, requestBody, response, responseBody) {
+            // Generate curl command
+            let curlCommand = `curl -X ${method} ${url}`;
+            if (method !== 'GET') {
+                curlCommand += ` \\\n  -H "Content-Type: application/json"`;
+                if (requestBody) {
+                    curlCommand += ` \\\n  -d '${JSON.stringify(requestBody, null, 2)}'`;
+                }
+            }
+
+            // Create log entry
+            const logEntry = {
+                timestamp: new Date().toISOString(),
+                action: action,
+                curl: curlCommand,
+                request: {
+                    method: method,
+                    url: url,
+                    body: requestBody
+                },
+                response: {
+                    status: response.status,
+                    statusText: response.statusText,
+                    headers: Object.fromEntries(response.headers.entries()),
+                    body: responseBody,
+                    url: response.url
+                }
+            };
+
+            // Add to log and save
+            actionLog.unshift(logEntry); // Add to beginning
+            
+            // Keep only last 100 entries
+            if (actionLog.length > 100) {
+                actionLog = actionLog.slice(0, 100);
+            }
+            
+            // Save to localStorage
+            localStorage.setItem('batch-action-log', JSON.stringify(actionLog));
+            
+            // Show simple success message
+            alert(`${action} successful! View details in Action Log.`);
+        }
+
+        function loadActionLog() {
+            const saved = localStorage.getItem('batch-action-log');
+            if (saved) {
+                try {
+                    actionLog = JSON.parse(saved);
+                } catch (e) {
+                    console.error('Failed to load action log:', e);
+                    actionLog = [];
+                }
+            }
+        }
+
+        function showActionLog() {
+            const modal = document.getElementById('action-log-modal');
+            const content = document.getElementById('action-log-content');
+            const count = document.getElementById('log-count');
+            
+            count.textContent = actionLog.length;
+            
+            if (actionLog.length === 0) {
+                content.innerHTML = '<div class="text-gray-500 text-center py-8">No actions logged yet</div>';
+            } else {
+                content.innerHTML = actionLog.map((entry, index) => `
+                    <div class="bg-white border rounded p-4">
+                        <div class="flex justify-between items-start mb-2">
+                            <div>
+                                <span class="font-semibold text-lg">${entry.action}</span>
+                                <span class="text-gray-500 ml-2">${new Date(entry.timestamp).toLocaleString()}</span>
+                            </div>
+                            <div class="flex space-x-2">
+                                <button onclick="rerunLogEntry(${index})" class="bg-orange-500 text-white px-2 py-1 rounded text-xs hover:bg-orange-600">
+                                    Re-run
+                                </button>
+                                <button onclick="copyLogEntry(${index}, 'curl')" class="bg-blue-500 text-white px-2 py-1 rounded text-xs hover:bg-blue-600">
+                                    Copy Curl
+                                </button>
+                                <button onclick="copyLogEntry(${index}, 'response')" class="bg-green-500 text-white px-2 py-1 rounded text-xs hover:bg-green-600">
+                                    Copy Response
+                                </button>
+                            </div>
+                        </div>
+                        
+                        <div class="text-sm space-y-2">
+                            <div>
+                                <span class="font-medium">Status:</span> 
+                                <span class="status-badge ${entry.response.status < 300 ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}">
+                                    ${entry.response.status} ${entry.response.statusText}
+                                </span>
+                            </div>
+                            
+                            <details class="mt-2">
+                                <summary class="cursor-pointer font-medium text-blue-600">Show Curl Command</summary>
+                                <div class="mt-2 bg-gray-900 text-green-400 p-2 rounded font-mono text-xs overflow-x-auto">
+                                    <pre>${entry.curl}</pre>
+                                </div>
+                            </details>
+                            
+                            <details class="mt-2">
+                                <summary class="cursor-pointer font-medium text-blue-600">Show Response</summary>
+                                <div class="mt-2 bg-gray-900 text-green-400 p-2 rounded font-mono text-xs max-h-32 overflow-y-auto">
+                                    <pre>${JSON.stringify(entry.response.body, null, 2)}</pre>
+                                </div>
+                            </details>
+                        </div>
+                    </div>
+                `).join('');
+            }
+            
+            modal.classList.remove('hidden');
+        }
+
+        function closeActionLog() {
+            document.getElementById('action-log-modal').classList.add('hidden');
+        }
+
+        async function rerunLogEntry(index) {
+            const entry = actionLog[index];
+            
+            if (!confirm(`Re-run: ${entry.action}?`)) return;
+            
+            try {
+                const response = await fetch(entry.request.url.replace(BATCH_API_URL, API_BASE), {
+                    method: entry.request.method,
+                    headers: entry.request.body ? { 'Content-Type': 'application/json' } : {},
+                    body: entry.request.body ? JSON.stringify(entry.request.body) : undefined
+                });
+                
+                // Read response text once
+                const responseText = await response.text();
+                let responseBody;
+                try {
+                    responseBody = JSON.parse(responseText);
+                } catch (e) {
+                    responseBody = responseText;
+                }
+                
+                const responseForLogging = {
+                    status: response.status,
+                    statusText: response.statusText,
+                    headers: response.headers,
+                    url: response.url
+                };
+                
+                // Always log the action, regardless of success/failure
+                logAction(`Re-run: ${entry.action}`, entry.request.method, entry.request.url, entry.request.body, responseForLogging, responseBody);
+                
+                // Show error message if request failed, but don't prevent logging
+                if (!response.ok) {
+                    alert(`Re-run failed: ${response.status} ${response.statusText}\n${responseBody}`);
+                }
+                
+                // Refresh batches if it was a batch operation
+                if (entry.action.includes('Batch')) {
+                    loadBatches();
+                }
+                
+                // Refresh the action log view
+                showActionLog();
+                
+            } catch (error) {
+                alert(`Failed to re-run ${entry.action}: ${error.message}`);
+            }
+        }
+
+        function copyLogEntry(index, type) {
+            const entry = actionLog[index];
+            let text = '';
+            
+            if (type === 'curl') {
+                text = entry.curl;
+            } else if (type === 'response') {
+                text = JSON.stringify(entry.response.body, null, 2);
+            }
+            
+            navigator.clipboard.writeText(text).then(() => {
+                alert(`${type} copied to clipboard!`);
+            }).catch(err => {
+                console.error('Failed to copy: ', err);
+                alert('Failed to copy to clipboard');
+            });
+        }
+
+        function downloadActionLog() {
+            const data = {
+                exported: new Date().toISOString(),
+                totalEntries: actionLog.length,
+                entries: actionLog
+            };
+            
+            const blob = new Blob([JSON.stringify(data, null, 2)], {
+                type: 'application/json'
+            });
+
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `batch-action-log-${new Date().toISOString().split('T')[0]}.json`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+        }
+
+        function clearActionLog() {
+            if (!confirm('Clear all action log entries? This cannot be undone.')) return;
+            
+            actionLog = [];
+            localStorage.removeItem('batch-action-log');
+            showActionLog(); // Refresh the view
+        }
+
+        // Raw response functions
+        function showRawResponse() {
+            if (!currentBatchRawResponse) {
+                alert('No raw response data available');
+                return;
+            }
+
+            // Format headers
+            const headersText = `HTTP/${currentBatchRawResponse.status} ${currentBatchRawResponse.statusText}
+${Object.entries(currentBatchRawResponse.headers)
+    .map(([key, value]) => `${key}: ${value}`)
+    .join('\n')}`;
+
+            // Format JSON body
+            const bodyText = JSON.stringify(currentBatchRawResponse.body, null, 2);
+
+            document.getElementById('raw-headers-content').textContent = headersText;
+            document.getElementById('raw-body-content').textContent = bodyText;
+            document.getElementById('raw-response-modal').classList.remove('hidden');
+        }
+
+        function closeRawResponseModal() {
+            document.getElementById('raw-response-modal').classList.add('hidden');
+        }
+
+        function copyRawResponseToClipboard() {
+            const bodyText = document.getElementById('raw-body-content').textContent;
+            navigator.clipboard.writeText(bodyText).then(() => {
+                alert('Raw JSON response copied to clipboard!');
+            }).catch(err => {
+                console.error('Failed to copy: ', err);
+                // Fallback for older browsers
+                const textArea = document.createElement('textarea');
+                textArea.value = bodyText;
+                document.body.appendChild(textArea);
+                textArea.select();
+                document.execCommand('copy');
+                document.body.removeChild(textArea);
+                alert('Raw JSON response copied to clipboard!');
+            });
+        }
+    </script>
+</body>
+</html>
